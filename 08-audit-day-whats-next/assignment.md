@@ -33,7 +33,7 @@ enhanced_loading: null
   .suse { color: #30ba78; }
   .edge { color: #30ba78; }
   .bank { color: #d4af37; }
-  .danger { color: #ff4d4d; font-weight: bold; }
+  .danger { color: #FE7C3F; font-weight: bold; }
   .hovereffect {
     border-radius: 25px 25px 25px 25px;
     background: linear-gradient(#30ba78 0 0) var(--hundredpercent, 0) / var(--hundredpercent, 0) no-repeat;
