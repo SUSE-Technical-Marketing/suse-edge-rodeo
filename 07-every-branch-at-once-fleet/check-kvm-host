@@ -10,7 +10,8 @@ SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
           -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
 RANCHER=192.168.122.9
 rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
-answers(){ curl -s --max-time 5 "http://$1:30080/" 2>/dev/null | grep -q "<title>"; }
+# Body captured first: with pipefail, "curl | grep -q" fails when grep exits early.
+answers(){ local b; b="$(curl -s --max-time 5 "http://$1:30080/" 2>/dev/null)"; [[ "$b" == *"<title>"* ]]; }
 
 FAIL=0
 fail(){ echo "FAIL: $*"; FAIL=1; }
