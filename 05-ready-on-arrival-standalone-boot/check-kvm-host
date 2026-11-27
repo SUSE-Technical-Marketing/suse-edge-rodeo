@@ -1,0 +1,35 @@
+#!/bin/bash
+# Chapter 5 check: edge3 (RKE2) and edge4 (K3s) are running and each reports
+# its own single node as Ready.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+
+FAIL=0
+fail(){ echo "FAIL: $*"; FAIL=1; }
+
+# node | ip | kubectl command on the node | distro
+while IFS='|' read -r NODE IP KUBECTL DISTRO <&3; do
+  state="$(virsh domstate "${NODE}" 2>/dev/null | head -1)"
+  if [ "${state}" != "running" ]; then
+    fail "${NODE} is '${state:-unknown}'. Seed it (Task 1) and start it with 'virsh start ${NODE}'."
+    continue
+  fi
+  if ! ssh "${SSH_OPTS[@]}" "root@${IP}" true 2>/dev/null; then
+    fail "${NODE} is running but SSH on ${IP} does not answer yet. Give it a few minutes."
+    continue
+  fi
+  if ssh "${SSH_OPTS[@]}" "root@${IP}" "${KUBECTL} get nodes --no-headers" 2>/dev/null | grep -qw Ready; then
+    echo "OK:   ${NODE} runs ${DISTRO} and its node is Ready"
+  else
+    fail "${NODE} is up but ${DISTRO} is not Ready yet. First boot can take up to five minutes."
+  fi
+done 3<<'LIST'
+edge3|192.168.122.33|/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml|RKE2
+edge4|192.168.122.34|kubectl|K3s
+LIST
+
+[ "${FAIL}" -eq 0 ] || exit 1
+echo "PASS: edge3 and edge4 are working Kubernetes clusters."

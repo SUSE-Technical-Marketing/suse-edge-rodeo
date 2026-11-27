@@ -1,0 +1,46 @@
+#!/bin/bash
+# Chapter 3 check: the four EIB images exist on the eib VM and no build for
+# them is still running. Does not wait for builds: a running build is
+# reported as "still building" so the student can check again later.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+EIB=192.168.122.20
+eib(){ ssh "${SSH_OPTS[@]}" "root@${EIB}" "$*"; }
+
+if ! eib true 2>/dev/null; then
+  echo "FAIL: cannot reach the eib VM (${EIB})."
+  exit 1
+fi
+
+RUNNING="$(eib "podman ps --format '{{.Command}}'" 2>/dev/null)"
+
+FAIL=0
+# image path | definition file | log | task
+while IFS='|' read -r IMAGE DEF LOG TASK <&3; do
+  NAME="$(basename "${IMAGE}")"
+  if grep -qF "${DEF}" <<<"${RUNNING}"; then
+    echo "WAIT: ${NAME} is still building. Last log line:"
+    eib "tail -1 ${LOG} 2>/dev/null" | sed 's/^/      /'
+    FAIL=1
+  elif eib "test -s ${IMAGE}"; then
+    echo "OK:   ${NAME}"
+  else
+    echo "FAIL: ${NAME} not found and no build is running for it. Start it in ${TASK}."
+    if eib "test -s ${LOG}"; then
+      echo "      Last lines of ${LOG}:"
+      eib "tail -3 ${LOG}" | sed 's/^/      /'
+    fi
+    FAIL=1
+  fi
+done 3<<'LIST'
+/home/eib-workspace/elemental-edge1.iso|elemental-edge1-definition.yaml|/tmp/eib-edge1.log|Task 2
+/home/eib-workspace/elemental-edge2.iso|elemental-edge2-definition.yaml|/tmp/eib-edge2.log|Task 3
+/home/eib-standalone/rke2-edge3.raw|rke2-edge3-definition.yaml|/tmp/eib-rke2.log|Task 4
+/home/eib-standalone/k3s-edge4.raw|k3s-edge4-definition.yaml|/tmp/eib-k3s.log|Task 5
+LIST
+
+[ "${FAIL}" -eq 0 ] || exit 1
+echo "PASS: all four images are built. Time to boot some nodes."

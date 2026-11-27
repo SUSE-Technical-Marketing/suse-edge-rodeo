@@ -1,0 +1,90 @@
+#!/bin/bash
+# Chapter 4 solve: best effort for the ISO install, which needs two
+# keypresses per node (GRUB entry, then "Destroying ALL data on /dev/vda").
+#
+# 1. Pull the ISOs as the student (rodeo pull-edge-image, the verified path).
+# 2. Start the nodes and press Enter on both prompts with virsh send-key,
+#    on a timer. Extra Enter presses during the install are harmless; the
+#    presses stop after about two minutes so they never reach a later boot.
+# 3. Wait for two MachineInventory records, shut down, eject, start from disk.
+#
+# The keypress timing is the weak spot: on a very slow host the GRUB menu or
+# the confirmation can appear after the last press. The script then stops
+# with a message to finish the keypresses by hand (Task 2) and Skip again.
+# Nodes that are already registered are left alone.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+STUDENT=student
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+log(){ echo ">>> [ch4-solve] $*"; }
+inventories(){ rk "kubectl get machineinventory -n fleet-default --no-headers 2>/dev/null | wc -l" 2>/dev/null | tr -d ' '; }
+
+# Run a command as the student, through a login shell so it gets the same
+# PATH and libvirt access the student's terminal has.
+as_student() {
+  getent passwd "${STUDENT}" >/dev/null || { echo "ERROR: no '${STUDENT}' user on this host."; return 1; }
+  runuser -l "${STUDENT}" -c "LIBVIRT_DEFAULT_URI=qemu:///system $(printf '%q ' "$@")"
+}
+has_cdrom(){ virsh domblklist "$1" --details 2>/dev/null | awk '$2 == "cdrom"' | grep -q .; }
+wait_state() {  # node, state, seconds
+  local i
+  for ((i = 0; i < $3; i += 5)); do
+    [ "$(virsh domstate "$1" 2>/dev/null | head -1)" = "$2" ] && return 0
+    sleep 5
+  done
+  return 1
+}
+
+if [ "$(inventories)" -ge 2 ] 2>/dev/null; then
+  log "both nodes are already registered."
+else
+  for i in 1 2; do
+    node="edge${i}"
+    virsh destroy "${node}" >/dev/null 2>&1 || true
+    log "attaching elemental-${node}.iso to ${node} ..."
+    as_student rodeo pull-edge-image --image "/home/eib-workspace/elemental-${node}.iso" \
+      --nodes "${node}" --yes || { echo "ERROR: pull-edge-image failed for ${node}."; exit 1; }
+    virsh start "${node}" >/dev/null
+  done
+
+  log "pressing Enter at the GRUB menu and the disk confirmation ..."
+  sleep 15
+  for _ in 1 2 3 4 5 6; do
+    virsh send-key edge1 KEY_ENTER >/dev/null 2>&1 || true
+    virsh send-key edge2 KEY_ENTER >/dev/null 2>&1 || true
+    sleep 20
+  done
+
+  log "waiting for both nodes to register (up to 20 minutes) ..."
+  for _ in $(seq 1 120); do
+    [ "$(inventories)" -ge 2 ] 2>/dev/null && break
+    sleep 10
+  done
+  if ! [ "$(inventories)" -ge 2 ] 2>/dev/null; then
+    echo "ERROR: $(inventories)/2 nodes registered. The installer may still wait for a keypress."
+    echo "       Open 'virsh console edge1' (and edge2), press Enter where asked, then Skip again."
+    exit 1
+  fi
+fi
+
+for i in 1 2; do
+  node="edge${i}"
+  if has_cdrom "${node}"; then
+    log "ejecting the ISO from ${node} ..."
+    virsh shutdown "${node}" >/dev/null 2>&1 || true
+    wait_state "${node}" "shut off" 180 || virsh destroy "${node}" >/dev/null 2>&1 || true
+    as_student rodeo eject-iso --nodes "${node}" --yes || { echo "ERROR: eject-iso failed for ${node}."; exit 1; }
+  fi
+  [ "$(virsh domstate "${node}" 2>/dev/null | head -1)" = "running" ] || virsh start "${node}" >/dev/null
+done
+
+log "waiting for edge1 and edge2 to answer ..."
+for ip in 192.168.122.31 192.168.122.32; do
+  for _ in $(seq 1 60); do ping -c1 -W2 "${ip}" >/dev/null 2>&1 && break; sleep 5; done
+done
+
+echo "PASS: Chapter 4 solved (edge1 and edge2 registered, running from disk)."

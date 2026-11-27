@@ -1,0 +1,27 @@
+#!/bin/bash
+# Chapter 2 solve: what Tasks 3 and 4 do. Fetches the eib-config repo into
+# /home/eib-workspace on the eib VM and replaces the Elemental placeholder
+# with the live registration config. Idempotent.
+
+set -euo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+EIB=192.168.122.20
+WS=/home/eib-workspace
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+eib(){ ssh "${SSH_OPTS[@]}" "root@${EIB}" "$*"; }
+log(){ echo ">>> [ch2-solve] $*"; }
+
+log "fetching the eib-config repo into ${WS} ..."
+eib "mkdir -p ${WS} && curl -sfL http://${EIB}:3000/gitea/eib-config/archive/main.tar.gz \
+     | tar -xz --strip-components=1 -C ${WS}"
+
+REGURL="$(rk "kubectl get machineregistration -n fleet-default -o jsonpath='{.items[0].status.registrationURL}'")"
+[ -n "${REGURL}" ] || { echo "ERROR: no registration URL on the management cluster."; exit 1; }
+
+log "writing the live Elemental registration config ..."
+eib "curl -sfk '${REGURL}' -o ${WS}/elemental/elemental_config.yaml && test -s ${WS}/elemental/elemental_config.yaml"
+
+echo "PASS: Chapter 2 solved (EIB workspace + Elemental registration config)."

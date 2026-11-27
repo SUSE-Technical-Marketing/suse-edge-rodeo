@@ -1,0 +1,36 @@
+#!/bin/bash
+# Chapter 4 check: edge1 and edge2 registered (two MachineInventory records),
+# their ISOs are ejected, and both run from disk with their static IPs.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+
+FAIL=0
+fail(){ echo "FAIL: $*"; FAIL=1; }
+
+COUNT="$(rk "kubectl get machineinventory -n fleet-default --no-headers 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')"
+COUNT="${COUNT:-0}"
+if [ "${COUNT}" -lt 2 ]; then
+  fail "${COUNT}/2 nodes registered (MachineInventory). Finish the install on both nodes (Task 2) and give elemental-register a few minutes."
+fi
+
+for i in 1 2; do
+  node="edge${i}"
+  ip="192.168.122.3${i}"
+  if virsh domblklist "${node}" --details 2>/dev/null | awk '$2 == "cdrom"' | grep -q .; then
+    fail "${node} still has its ISO attached. Shut it down and run 'rodeo eject-iso' (Task 4)."
+  fi
+  state="$(virsh domstate "${node}" 2>/dev/null | head -1)"
+  if [ "${state}" != "running" ]; then
+    fail "${node} is '${state:-unknown}', expected running. Start it with 'virsh start ${node}'."
+  elif ! ping -c1 -W2 "${ip}" >/dev/null 2>&1; then
+    fail "${node} is running but does not answer on ${ip} yet. Give it a minute to boot."
+  fi
+done
+
+[ "${FAIL}" -eq 0 ] || exit 1
+echo "PASS: edge1 and edge2 registered with HQ and run from their own disks."

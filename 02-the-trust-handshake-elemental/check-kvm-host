@@ -1,0 +1,39 @@
+#!/bin/bash
+# Chapter 2 check: the EIB workspace exists on the eib VM and its
+# elemental/elemental_config.yaml is the live config from this lab's
+# MachineRegistration (it carries the registration token from the URL),
+# not the placeholder from Git.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+EIB=192.168.122.20
+WS=/home/eib-workspace
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+eib(){ ssh "${SSH_OPTS[@]}" "root@${EIB}" "$*"; }
+
+if ! eib "test -f ${WS}/elemental-edge1-definition.yaml"; then
+  echo "FAIL: ${WS} on the eib VM has no definition files yet. Run Task 3 to fetch the eib-config repo."
+  exit 1
+fi
+
+REGURL="$(rk "kubectl get machineregistration -n fleet-default -o jsonpath='{.items[0].status.registrationURL}'" 2>/dev/null)"
+if [ -z "${REGURL}" ]; then
+  echo "FAIL: could not read the registration URL from the management cluster. Is the rancher VM up?"
+  exit 1
+fi
+TOKEN="${REGURL##*/}"
+
+if ! eib "test -s ${WS}/elemental/elemental_config.yaml"; then
+  echo "FAIL: ${WS}/elemental/elemental_config.yaml is missing or empty. Run Task 4."
+  exit 1
+fi
+if ! eib "grep -qF '${TOKEN}' ${WS}/elemental/elemental_config.yaml"; then
+  echo "FAIL: elemental_config.yaml does not point at this lab's registration URL yet."
+  echo "      It still looks like the placeholder. Run Task 2 again, then Task 4."
+  exit 1
+fi
+
+echo "PASS: the EIB workspace is ready and carries this lab's Elemental registration config."

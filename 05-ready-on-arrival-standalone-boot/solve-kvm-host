@@ -1,0 +1,47 @@
+#!/bin/bash
+# Chapter 5 solve: seeds edge3 and edge4 from their RAW images as the student
+# (rodeo pull-edge-image, the verified path), starts them and waits for
+# Kubernetes to be Ready. Nodes that already answer with a Ready node are
+# left alone.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+STUDENT=student
+log(){ echo ">>> [ch5-solve] $*"; }
+
+as_student() {
+  getent passwd "${STUDENT}" >/dev/null || { echo "ERROR: no '${STUDENT}' user on this host."; return 1; }
+  runuser -l "${STUDENT}" -c "LIBVIRT_DEFAULT_URI=qemu:///system $(printf '%q ' "$@")"
+}
+ready(){ ssh "${SSH_OPTS[@]}" "root@$1" "$2 get nodes --no-headers" 2>/dev/null | grep -qw Ready; }
+
+RC=0
+while IFS='|' read -r NODE IP IMAGE KUBECTL <&3; do
+  if ready "${IP}" "${KUBECTL}"; then
+    log "${NODE} is already Ready."
+    continue
+  fi
+  virsh destroy "${NODE}" >/dev/null 2>&1 || true
+  log "seeding ${NODE} from ${IMAGE} ..."
+  as_student rodeo pull-edge-image --image "${IMAGE}" --nodes "${NODE}" --yes \
+    || { echo "ERROR: pull-edge-image failed for ${NODE}."; RC=1; continue; }
+  virsh start "${NODE}" >/dev/null
+done 3<<'LIST'
+edge3|192.168.122.33|/home/eib-standalone/rke2-edge3.raw|/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml
+edge4|192.168.122.34|/home/eib-standalone/k3s-edge4.raw|kubectl
+LIST
+[ "${RC}" -eq 0 ] || exit 1
+
+log "waiting for RKE2 on edge3 and K3s on edge4 (up to 15 minutes) ..."
+for _ in $(seq 1 90); do
+  ready 192.168.122.33 "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" \
+    && ready 192.168.122.34 kubectl && break
+  sleep 10
+done
+ready 192.168.122.33 "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" \
+  || { echo "ERROR: edge3 RKE2 is not Ready."; exit 1; }
+ready 192.168.122.34 kubectl || { echo "ERROR: edge4 K3s is not Ready."; exit 1; }
+
+echo "PASS: Chapter 5 solved (edge3 RKE2 and edge4 K3s Ready)."

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Chapter 7 check: the three clusters are known to Fleet with the labels the
+# vertex-bank-app GitRepo targets, and the app answers on NodePort 30080 on
+# each node. The hub is edge1 in the guide; edge2 is accepted too, in case
+# the other Elemental node was labelled in Chapter 6.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+answers(){ curl -s --max-time 5 "http://$1:30080/" 2>/dev/null | grep -q "<title>"; }
+
+FAIL=0
+fail(){ echo "FAIL: $*"; FAIL=1; }
+
+FLEET="$(rk "kubectl get clusters.fleet.cattle.io -n fleet-default \
+  -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.demo} {.metadata.labels.edge-type}{\"\\n\"}{end}'" 2>/dev/null)"
+
+for c in vertex-hub-01 vertex-branch-rke2 vertex-branch-k3s; do
+  line="$(awk -v n="${c}" '$1 == n' <<<"${FLEET}")"
+  if [ -z "${line}" ]; then
+    case "${c}" in
+      vertex-hub-01) fail "Fleet does not list vertex-hub-01. Is it Active in Cluster Management?" ;;
+      *) fail "Fleet does not list ${c} yet. Import it (Task 3) and wait until it is Active." ;;
+    esac
+  elif [ "${line}" != "${c} true x86-cluster" ]; then
+    fail "${c} is missing the labels demo=true edge-type=x86-cluster on clusters.fleet.cattle.io (Task 2 or 4)."
+  fi
+done
+
+if answers 192.168.122.31 || answers 192.168.122.32; then
+  echo "OK:   vertex-hub-01 serves the app"
+else
+  fail "the app does not answer on the hub (192.168.122.31:30080) yet. Give Fleet a minute after labelling."
+fi
+answers 192.168.122.33 && echo "OK:   vertex-branch-rke2 (edge3) serves the app" \
+  || fail "the app does not answer on edge3 (192.168.122.33:30080) yet."
+answers 192.168.122.34 && echo "OK:   vertex-branch-k3s (edge4) serves the app" \
+  || fail "the app does not answer on edge4 (192.168.122.34:30080) yet."
+
+[ "${FAIL}" -eq 0 ] || exit 1
+echo "PASS: one Git repo, three clusters, the same app on every branch."

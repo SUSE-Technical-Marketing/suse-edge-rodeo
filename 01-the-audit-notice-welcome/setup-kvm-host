@@ -1,0 +1,30 @@
+#!/bin/bash
+# Chapter 1 setup: make sure the two always-on VMs (rancher, eib) are running
+# and reachable before the student starts. Idempotent and non-fatal: a slow
+# boot must not block the chapter, the check reports what is still missing.
+#
+# Runs as root on the KVM host, cwd = this chapter, wiped env.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+log(){ echo ">>> [ch1-setup] $*"; }
+
+for vm in rancher eib; do
+  state="$(virsh domstate "${vm}" 2>/dev/null | head -1)"
+  if [ "${state}" = "shut off" ]; then
+    log "starting ${vm} ..."
+    virsh start "${vm}" >/dev/null || log "warn: could not start ${vm}"
+  fi
+done
+
+for ip in 192.168.122.9 192.168.122.20; do
+  for _ in $(seq 1 60); do
+    ssh "${SSH_OPTS[@]}" "root@${ip}" true 2>/dev/null && { log "${ip} reachable"; break; }
+    sleep 5
+  done
+done
+
+echo ">>> Chapter 1 setup complete."
+exit 0

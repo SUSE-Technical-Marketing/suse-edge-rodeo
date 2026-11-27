@@ -1,0 +1,13 @@
+# Expected result of each chapter's check BEFORE its solve script runs, for
+# `rodeo player test --expect suse-edge-rodeo.expect.yaml` on a fresh suse-edge lab.
+#   pass  the chapter only verifies the lab is healthy (nothing to do yet)
+#   fail  the check really tests the student's work
+# Not yet locked from a live run.
+first_check:
+  01-the-audit-notice-welcome: pass
+  02-the-trust-handshake-elemental: fail
+  03-the-image-factory-eib-builds: fail
+  04-phoning-home-elemental-boot: fail
+  05-ready-on-arrival-standalone-boot: fail
+  06-the-regional-hub-provision-cluster: fail
+  07-every-branch-at-once-fleet: fail

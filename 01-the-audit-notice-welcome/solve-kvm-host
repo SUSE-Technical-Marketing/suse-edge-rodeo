@@ -1,0 +1,4 @@
+#!/bin/bash
+# Chapter 1 solve: nothing to create, the chapter is a read-only tour.
+# Must stay a no-op so Skip works even while the lab is still settling.
+echo ">>> Nothing to solve for Chapter 1, moving on to Chapter 2."

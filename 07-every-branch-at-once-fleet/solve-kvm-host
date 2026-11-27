@@ -1,0 +1,69 @@
+#!/bin/bash
+# Chapter 7 solve: labels vertex-hub-01 for Fleet, imports edge3 and edge4
+# into Rancher Prime the way the UI does it (a provisioning Cluster with an
+# empty spec, then the insecure registration manifest applied on the node),
+# labels the two imported clusters and waits for the app on NodePort 30080.
+# Clusters that are already imported are not imported again.
+
+set -uo pipefail
+
+SSH_OPTS=(-n -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+log(){ echo ">>> [ch7-solve] $*"; }
+answers(){ curl -s --max-time 5 "http://$1:30080/" 2>/dev/null | grep -q "<title>"; }
+
+# Wait for clusters.fleet.cattle.io/<name>, then label it. 10 minutes max.
+fleet_label() {
+  local c=$1
+  for _ in $(seq 1 60); do
+    if rk "kubectl get clusters.fleet.cattle.io ${c} -n fleet-default" >/dev/null 2>&1; then
+      rk "kubectl label clusters.fleet.cattle.io ${c} -n fleet-default demo=true edge-type=x86-cluster --overwrite" >/dev/null \
+        && { log "labelled ${c} for Fleet"; return 0; }
+    fi
+    sleep 10
+  done
+  echo "ERROR: Fleet never listed ${c}."
+  return 1
+}
+
+# import <cluster name> <node ip> <kubectl on the node>
+import() {
+  local c=$1 ip=$2 kubectl=$3 mgmt url
+  if [ "$(rk "kubectl get clusters.provisioning.cattle.io ${c} -n fleet-default -o jsonpath='{.status.ready}'" 2>/dev/null)" = "true" ]; then
+    log "${c} is already imported."
+    return 0
+  fi
+  log "creating the import cluster ${c} ..."
+  rk "printf 'apiVersion: provisioning.cattle.io/v1\nkind: Cluster\nmetadata:\n  name: ${c}\n  namespace: fleet-default\nspec: {}\n' | kubectl apply -f -" >/dev/null || return 1
+  for _ in $(seq 1 30); do
+    mgmt="$(rk "kubectl get clusters.provisioning.cattle.io ${c} -n fleet-default -o jsonpath='{.status.clusterName}'" 2>/dev/null)"
+    [ -n "${mgmt}" ] && url="$(rk "kubectl get clusterregistrationtokens.management.cattle.io -n ${mgmt} -o jsonpath='{.items[0].status.manifestUrl}'" 2>/dev/null)"
+    [ -n "${url:-}" ] && break
+    sleep 10
+  done
+  [ -n "${url:-}" ] || { echo "ERROR: no registration manifest for ${c}."; return 1; }
+  log "applying the registration manifest on ${ip} ..."
+  ssh "${SSH_OPTS[@]}" "root@${ip}" "curl --insecure -sfL '${url}' | ${kubectl} apply -f -" >/dev/null \
+    || { echo "ERROR: applying the registration manifest on ${ip} failed."; return 1; }
+}
+
+RC=0
+fleet_label vertex-hub-01 || RC=1
+import vertex-branch-rke2 192.168.122.33 "/var/lib/rancher/rke2/bin/kubectl --kubeconfig /etc/rancher/rke2/rke2.yaml" || RC=1
+import vertex-branch-k3s 192.168.122.34 kubectl || RC=1
+[ "${RC}" -eq 0 ] || exit 1
+fleet_label vertex-branch-rke2 || exit 1
+fleet_label vertex-branch-k3s || exit 1
+
+log "waiting for the app on all three clusters (up to 15 minutes) ..."
+for _ in $(seq 1 90); do
+  if { answers 192.168.122.31 || answers 192.168.122.32; } && answers 192.168.122.33 && answers 192.168.122.34; then
+    echo "PASS: Chapter 7 solved (vertex-bank-app on all three clusters)."
+    exit 0
+  fi
+  sleep 10
+done
+echo "ERROR: the app does not answer on every cluster after 15 minutes. Check Continuous Delivery in Rancher Prime."
+exit 1

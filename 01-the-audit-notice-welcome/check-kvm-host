@@ -1,0 +1,41 @@
+#!/bin/bash
+# Chapter 1 check: the tour is read-only, so this only confirms the lab is
+# healthy before the student builds on it: management cluster node Ready,
+# Elemental Operator running, Hauler and Gitea up on the eib VM.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+EIB=192.168.122.20
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+eib(){ ssh "${SSH_OPTS[@]}" "root@${EIB}" "$*"; }
+
+FAIL=0
+fail(){ echo "FAIL: $*"; FAIL=1; }
+
+if ! rk true 2>/dev/null; then
+  fail "cannot reach the rancher VM (${RANCHER}). Run 'virsh list --all' and check it is running."
+else
+  rk "kubectl get nodes --no-headers" 2>/dev/null | grep -qw Ready \
+    || fail "the management cluster node is not Ready yet. Wait a minute and check again."
+  rk "kubectl get pods -n cattle-elemental-system --no-headers" 2>/dev/null \
+    | grep -E '^elemental-operator' | grep -qw Running \
+    || fail "the Elemental Operator pod is not Running in cattle-elemental-system."
+fi
+
+if ! eib true 2>/dev/null; then
+  fail "cannot reach the eib VM (${EIB}). Run 'virsh list --all' and check it is running."
+else
+  for svc in hauler-registry hauler-fileserver; do
+    [ "$(eib "systemctl is-active ${svc}" 2>/dev/null)" = "active" ] \
+      || fail "the ${svc} service is not active on the eib VM."
+  done
+fi
+
+curl -s -o /dev/null --max-time 5 "http://${EIB}:3000/" \
+  || fail "Gitea does not answer on ${EIB}:3000."
+
+[ "${FAIL}" -eq 0 ] || exit 1
+echo "PASS: management cluster, Elemental Operator, Hauler and Gitea are all up. On to Chapter 2."

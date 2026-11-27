@@ -1,0 +1,77 @@
+#!/bin/bash
+# Chapter 3 solve: builds the four images the chapter builds by hand, in
+# parallel, and leaves them at the paths the next chapters pull from:
+#   /home/eib-workspace/elemental-edge{1,2}.iso
+#   /home/eib-standalone/{rke2-edge3,k3s-edge4}.raw
+#
+# The guide swaps network/ and custom/scripts/ in one shared workspace between
+# builds. Unattended, that is a race, so each build here gets its own copy of
+# the workspace under /home/eib-solve/<node> and the result is moved into
+# place. Images that already exist are kept. Needs Chapter 2's workspace
+# (the skip flow runs Chapter 2's solve first).
+
+set -euo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR
+          -o ServerAliveInterval=30)
+EIB=192.168.122.20
+log(){ echo ">>> [ch3-solve] $*"; }
+
+log "building the missing images on the eib VM (this takes several minutes) ..."
+ssh "${SSH_OPTS[@]}" "root@${EIB}" bash -s <<'REMOTE'
+set -uo pipefail
+EIB_IMG=registry.suse.com/edge/3.7/edge-image-builder:1.3.4
+WS=/home/eib-workspace
+SA=/home/eib-standalone
+SOLVE=/home/eib-solve
+
+[ -f "${WS}/elemental/elemental_config.yaml" ] || { echo "ERROR: ${WS} is not set up (Chapter 2)."; exit 1; }
+
+# The standalone workspace: the same repo without elemental/.
+if [ ! -f "${SA}/rke2-edge3-definition.yaml" ]; then
+  mkdir -p "${SA}"
+  curl -sfL http://192.168.122.20:3000/gitea/eib-config/archive/main.tar.gz \
+    | tar -xz --strip-components=1 -C "${SA}"
+  rm -rf "${SA}/elemental"
+fi
+
+# build <node> <source workspace> <definition> <output> <scripts...>
+build() {
+  local node=$1 src=$2 def=$3 out=$4; shift 4
+  local dir="${SOLVE}/${node}"
+  if [ -s "${src}/${out}" ]; then echo "${out}: already built"; return 0; fi
+  rm -rf "${dir}" && mkdir -p "${dir}"
+  # Copy the workspace without built images, EIB build dirs or per-build inputs.
+  (cd "${src}" && tar --exclude='./*.iso' --exclude='./*.raw' --exclude='./_build' \
+     --exclude='./network' --exclude='./custom/scripts' -cf - .) | tar -xf - -C "${dir}"
+  mkdir -p "${dir}/network"
+  cp "${dir}/network-configs/${node}.yaml" "${dir}/network/"
+  if [ "$#" -gt 0 ]; then
+    mkdir -p "${dir}/custom/scripts"
+    for s in "$@"; do cp "${dir}/scripts-available/${s}" "${dir}/custom/scripts/"; done
+  fi
+  local mounts=(-v "${dir}:/eib:z" -v /home/eib-config/base-images:/eib/base-images:ro)
+  [ -d "${dir}/elemental" ] && mounts+=(-v /home/eib-config/rpms:/eib/rpms:ro)
+  if podman run --rm --privileged "${mounts[@]}" "${EIB_IMG}" build --definition-file "${def}" \
+       > "/tmp/eib-solve-${node}.log" 2>&1 && [ -s "${dir}/${out}" ]; then
+    mv "${dir}/${out}" "${src}/${out}"
+    rm -rf "${dir}"
+    echo "${out}: built"
+  else
+    echo "${out}: FAILED, last lines of /tmp/eib-solve-${node}.log:"
+    tail -5 "/tmp/eib-solve-${node}.log"
+    return 1
+  fi
+}
+
+build edge1 "${WS}" elemental-edge1-definition.yaml elemental-edge1.iso & p1=$!
+build edge2 "${WS}" elemental-edge2-definition.yaml elemental-edge2.iso & p2=$!
+build edge3 "${SA}" rke2-edge3-definition.yaml rke2-edge3.raw 60-hostname-edge3.sh 99-k3s-registries.sh & p3=$!
+build edge4 "${SA}" k3s-edge4-definition.yaml k3s-edge4.raw 60-hostname-edge4.sh 99-k3s-registries.sh & p4=$!
+rc=0
+for p in $p1 $p2 $p3 $p4; do wait "$p" || rc=1; done
+exit $rc
+REMOTE
+
+echo "PASS: Chapter 3 solved (four EIB images built)."

@@ -1,0 +1,71 @@
+#!/bin/bash
+# Chapter 6 solve: Tasks 2 to 4 through kubectl on the management cluster,
+# then waits for vertex-hub-01 to be ready. edge1's MachineInventory is found
+# by its libvirt UUID (the inventory name holds the SMBIOS UUID); if that
+# match fails it falls back to the first inventory, like the source guide.
+
+set -euo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=10 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+log(){ echo ">>> [ch6-solve] $*"; }
+
+log "creating the selector template ..."
+rk "kubectl apply -f -" <<'YAML'
+apiVersion: elemental.cattle.io/v1beta1
+kind: MachineInventorySelectorTemplate
+metadata:
+  name: vertex-hub-selector
+  namespace: fleet-default
+spec:
+  template:
+    spec:
+      selector:
+        matchLabels:
+          site-role: hub
+YAML
+
+if [ -z "$(rk "kubectl get machineinventory -n fleet-default -l site-role=hub -o name")" ]; then
+  UUID="$(virsh domuuid edge1 2>/dev/null || true)"
+  EDGE1="$(rk "kubectl get machineinventory -n fleet-default -o name" | grep -i "${UUID:-none}" | head -1 | cut -d/ -f2 || true)"
+  if [ -z "${EDGE1}" ]; then
+    EDGE1="$(rk "kubectl get machineinventory -n fleet-default -o jsonpath='{.items[0].metadata.name}'")"
+    log "no inventory matched edge1's UUID, using the first one: ${EDGE1}"
+  fi
+  [ -n "${EDGE1}" ] || { echo "ERROR: no MachineInventory to label (Chapter 4)."; exit 1; }
+  log "labelling ${EDGE1} as a hub ..."
+  rk "kubectl label machineinventory ${EDGE1} -n fleet-default site-role=hub demo=true edge-type=x86-cluster --overwrite"
+fi
+
+log "creating the cluster vertex-hub-01 ..."
+rk "kubectl apply -f -" <<'YAML'
+apiVersion: provisioning.cattle.io/v1
+kind: Cluster
+metadata:
+  name: vertex-hub-01
+  namespace: fleet-default
+spec:
+  kubernetesVersion: v1.36.3+k3s1
+  rkeConfig:
+    machinePools:
+      - name: hub-nodes
+        quantity: 1
+        etcdRole: true
+        controlPlaneRole: true
+        workerRole: true
+        machineConfigRef:
+          kind: MachineInventorySelectorTemplate
+          name: vertex-hub-selector
+          apiVersion: elemental.cattle.io/v1beta1
+YAML
+
+log "waiting for vertex-hub-01 to be ready (up to 25 minutes) ..."
+for _ in $(seq 1 150); do
+  [ "$(rk "kubectl get clusters.provisioning.cattle.io vertex-hub-01 -n fleet-default -o jsonpath='{.status.ready}'" 2>/dev/null)" = "true" ] \
+    && { echo "PASS: Chapter 6 solved (vertex-hub-01 ready)."; exit 0; }
+  sleep 10
+done
+echo "ERROR: vertex-hub-01 is not ready after 25 minutes. Check Cluster Management in Rancher Prime."
+exit 1

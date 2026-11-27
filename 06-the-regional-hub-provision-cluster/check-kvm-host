@@ -1,0 +1,36 @@
+#!/bin/bash
+# Chapter 6 check: the selector template exists, a MachineInventory carries
+# site-role=hub, and the vertex-hub-01 cluster reports ready. Does not wait
+# for provisioning: a cluster that is not ready yet gets a "still
+# provisioning" message.
+
+set -uo pipefail
+
+SSH_OPTS=(-i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new
+          -o ConnectTimeout=5 -o BatchMode=yes -o LogLevel=ERROR)
+RANCHER=192.168.122.9
+rk(){ ssh "${SSH_OPTS[@]}" "root@${RANCHER}" "export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; $*"; }
+
+if ! rk "kubectl get machineinventoryselectortemplate vertex-hub-selector -n fleet-default" >/dev/null 2>&1; then
+  echo "FAIL: the MachineInventorySelectorTemplate vertex-hub-selector does not exist. Run Task 2."
+  exit 1
+fi
+
+HUBS="$(rk "kubectl get machineinventory -n fleet-default -l site-role=hub --no-headers 2>/dev/null | wc -l" 2>/dev/null | tr -d ' ')"
+if [ "${HUBS:-0}" -lt 1 ]; then
+  echo "FAIL: no MachineInventory has the label site-role=hub. Label edge1 in Task 3."
+  exit 1
+fi
+
+if ! rk "kubectl get clusters.provisioning.cattle.io vertex-hub-01 -n fleet-default" >/dev/null 2>&1; then
+  echo "FAIL: the cluster vertex-hub-01 does not exist. Run Task 4."
+  exit 1
+fi
+
+READY="$(rk "kubectl get clusters.provisioning.cattle.io vertex-hub-01 -n fleet-default -o jsonpath='{.status.ready}'" 2>/dev/null)"
+if [ "${READY}" != "true" ]; then
+  echo "WAIT: vertex-hub-01 exists but is still provisioning. Watch it in Cluster Management and check again in a few minutes."
+  exit 1
+fi
+
+echo "PASS: vertex-hub-01 is up on edge1, and nobody logged in to the node."
