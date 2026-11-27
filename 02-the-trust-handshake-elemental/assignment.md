@@ -146,7 +146,7 @@ The registration URL has to be inside the OS image. So you set up registration f
 🔐 Login Credentials
 ====================
 
-The **Rancher Prime** UI uses the `admin` user. The password is in the **Credentials** panel in the header of this page.
+The **Rancher Prime** UI uses the `admin` user. The password is below, and also in the **Credentials** panel in the header.
 
 Username:
 
@@ -154,6 +154,16 @@ Username:
 
 ```txt
 admin
+```
+
+</div>
+
+Password:
+
+<div class="cred">
+
+```txt
+[[ Instruqt-Var key="RANCHER_PASSWORD" hostname="kvm-host" ]]
 ```
 
 </div>
