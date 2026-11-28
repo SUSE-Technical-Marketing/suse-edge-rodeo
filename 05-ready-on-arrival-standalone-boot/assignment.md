@@ -185,10 +185,11 @@ virsh domblklist edge4
 Then list the volumes in the storage pool:
 
 ```bash
+virsh pool-refresh default >/dev/null
 virsh vol-list default --details | grep -E 'edge3|edge4|base'
 ```
 
-The `-base.raw` volumes hold the full image. The per-node disks are thin clones that only store what changes after boot. Ten edge3-class nodes would share one base and cost very little extra disk.
+The `-base` volumes hold the full image. The per-node disks are thin clones that only store what changes after boot. Ten edge3-class nodes would share one base and cost very little extra disk.
 
 ▶️ Task 3: Start both nodes
 ===========================
