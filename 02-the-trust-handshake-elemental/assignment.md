@@ -303,7 +303,7 @@ The configs call the interface `eth0`, but that is only a logical name. At first
 - **Identity bound to hardware.** With `auth: tpm`, a stolen or copied disk cannot join the fleet as another node.
 - **Config as code.** The image definitions and network plan live in Git, so every change has an author and a date.
 
-Click **Check** to confirm the workspace and the registration config are in place.
+Click **Check my work** to confirm the workspace and the registration config are in place.
 
 📚 More information
 ===================

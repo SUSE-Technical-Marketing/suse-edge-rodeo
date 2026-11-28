@@ -271,7 +271,7 @@ Keeping both in Git means every image and every deployment has a history. That i
 - **Images, not hand-made configs.** Branch nodes will boot from images built in one place. No two nodes drift apart, because nobody logs in to change them.
 - **Local artifacts for weak links.** Hauler keeps every image and file a branch needs close to it.
 
-Click **Check** to confirm the management cluster and the image factory are healthy.
+Click **Check my work** to confirm the management cluster and the image factory are healthy.
 
 📚 More information
 ===================

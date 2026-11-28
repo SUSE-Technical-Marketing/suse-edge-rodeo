@@ -389,7 +389,7 @@ exit
 - **One factory for both site types.** The same tool and the same repo build a generic Elemental installer and a ready-to-run cluster disk.
 - **Built from local artifacts.** Every container image came from Hauler, so this factory could sit in a site with no internet at all.
 
-Click **Check** when the four images are built. If a build is still running, the check tells you which one.
+Click **Check my work** when the four images are built. If a build is still running, the check tells you which one.
 
 📚 More information
 ===================

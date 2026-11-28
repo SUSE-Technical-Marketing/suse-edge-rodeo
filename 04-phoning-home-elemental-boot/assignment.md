@@ -274,7 +274,7 @@ ping -c3 192.168.122.32
 - **HQ decides what they become.** The nodes are registered but have no role yet. In Chapter 6 you turn one into a Kubernetes cluster without logging in to it.
 - **Hardware-bound trust.** The `MachineInventory` is tied to each node's TPM. To revoke one node, delete its `MachineInventory`.
 
-Click **Check** when both nodes are registered and running from disk.
+Click **Check my work** when both nodes are registered and running from disk.
 
 📚 More information
 ===================

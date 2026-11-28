@@ -265,7 +265,7 @@ When `vertex-hub-01` shows `READY` as `true`, the cluster is up. It takes a few 
 - **Roles decided late.** The same generic image could have become a hub, a worker or nothing at all. HQ decides after the node is on site.
 - **Same model at any scale.** One node or a thousand, the steps do not change: register, label, let the selector match.
 
-Click **Check** when `vertex-hub-01` is ready. If it is still provisioning, the check says so.
+Click **Check my work** when `vertex-hub-01` is ready. If it is still provisioning, the check says so.
 
 📚 More information
 ===================

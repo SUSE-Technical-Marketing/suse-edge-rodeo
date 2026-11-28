@@ -228,7 +228,7 @@ Each shows one node in `Ready` state: `v1.36.3+rke2r1` on edge3 and `v1.36.3+k3s
 - **Cheap to scale.** One base image, many thin clones. The same idea works for shipping disks to many identical sites.
 - **Re-image to recover.** If a node breaks, write the image again. It comes back exactly as built.
 
-Click **Check** when both clusters report `Ready`.
+Click **Check my work** when both clusters report `Ready`.
 
 📚 More information
 ===================

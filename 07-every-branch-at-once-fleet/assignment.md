@@ -305,7 +305,7 @@ Four nodes, four images, two provisioning paths, one management plane.
 | Good for | Mixed-role sites, large fleets | Fixed-function nodes, strict air gaps |
 | Recovery | Register again, provision again | Write the image again |
 
-Click **Check** when the app answers on all three clusters.
+Click **Check my work** when the app answers on all three clusters.
 
 📚 More information
 ===================
